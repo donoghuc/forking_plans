@@ -7,6 +7,7 @@ require 'bolt/config'
 require 'bolt/plugin'
 require 'bolt/inventory'
 require 'bolt/application'
+require "memory_profiler"
 
 ## Steal some forking stuff from puppet based on conversation from https://github.com/puppetlabs/bolt/pull/892/files
 
@@ -58,6 +59,9 @@ def execute_plan(application, plan_name)
         begin
           puts application.run_plan(plan_name, [])
         rescue StandardError => e
+          puts "bolt failed to run"
+          puts e
+          puts e.backtrace
         end
       end
       [stdin, stdout, stderr].each do |io|
@@ -160,8 +164,13 @@ application = Bolt::Application.new(
 # results = 10.times.map { execute_plan(application, 'bolt_test') }
 # puts results
 
-threads = []
-10.times {
-  threads << Thread.new { puts execute_plan(application, 'bolt_test') }
-}
-threads.each(&:join)
+
+
+report = MemoryProfiler.report do
+  threads = []
+  10.times {
+    threads << Thread.new { puts execute_plan(application, 'bolt_test') }
+  }
+  threads.each(&:join)
+end
+report.pretty_print(to_file: "profile.txt")
