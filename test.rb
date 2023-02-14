@@ -7,7 +7,6 @@ require 'bolt/config'
 require 'bolt/plugin'
 require 'bolt/inventory'
 require 'bolt/application'
-require "memory_profiler"
 
 ## Steal some forking stuff from puppet based on conversation from https://github.com/puppetlabs/bolt/pull/892/files
 
@@ -158,19 +157,6 @@ application = Bolt::Application.new(
 )
 
 
-
-
-# TODO: experiment with runnign these concurrently (not currently working serially)
-# results = 10.times.map { execute_plan(application, 'bolt_test') }
-# puts results
-
-
-
-report = MemoryProfiler.report do
-  threads = []
-  10.times {
-    threads << Thread.new { puts execute_plan(application, 'bolt_test') }
-  }
-  threads.each(&:join)
-end
-report.pretty_print(to_file: "profile.txt")
+## At this point we have loaded enough bolt code to experiment with forking plan execution after this point in 
+## the lifecycle. The current execute_plan forks a single process and waits. We should refactor it to fork N processes and wait
+puts execute_plan(application, 'bolt_test')

@@ -10,6 +10,6 @@ Puppet::Functions.create_function(:'bolt_test::fake_task') do
   
     def fake_task(num_targets, task_result_size, target)
       fake_data = 'a' * task_result_size
-      Bolt::ResultSet.new(num_targets.times.map {|_| Bolt::Result.new(target, value: {'message' => fake_data})})
+      Bolt::ResultSet.new(num_targets.times.map {|i| Bolt::Result.new(Bolt::Target.from_asserted_hash({'name' => "target_#{i}"}), value: {'message' => fake_data})})
     end
   end
