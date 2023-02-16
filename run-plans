@@ -1,0 +1,110 @@
+#!/usr/bin/env ruby
+
+require 'optparse'
+
+require 'bolt'
+require 'bolt/project'
+require 'bolt/analytics'
+require 'bolt/executor'
+require 'bolt/config'
+require 'bolt/plugin'
+require 'bolt/inventory'
+require 'bolt/application'
+
+def await_interrupt()
+  begin
+    while true
+      sleep(1)
+    end
+  rescue Interrupt
+    print "#{Process.pid} interrupted (child)\n"
+  end
+end
+
+def plan_subprocess(application, plan_name)
+  Kernel.fork do
+    Dir.foreach('/proc/self/fd') do |f|
+      if f != '.' && f != '..' && f.to_i >= 3
+        begin
+          IO.new(f.to_i).close
+        rescue StandardError
+          nil
+        end
+      end
+    end
+    print "child #{Process.pid} forked (C-c to continue)\n"
+    await_interrupt()
+
+    begin
+      application.run_plan(plan_name, [])
+    rescue StandardError => e
+      puts "bolt failed to run"
+      puts e
+      puts e.backtrace
+    end
+    print "child #{Process.pid} ran plan (C-c to continue)\n"
+    await_interrupt()
+
+    GC.compact
+    print "child #{Process.pid} ran gc (C-c to continue)\n"
+    await_interrupt()
+    print "child #{Process.pid} finished\n"
+  end
+end
+
+options = {}
+OptionParser.new do |parser|
+  parser.banner = 'Usage: ... -n PLAN_COUNT'
+  parser.on('-n PLAN_COUNT', Integer,
+            'Run N test plans in parallel and wait') do |n|
+    options[:plan_count] = n
+  end
+end.parse!
+
+## Load bolt and get an application instance we can use to run plans in a fork
+project = Bolt::Project.find_boltdir(Dir.pwd)
+config = Bolt::Config.from_project(project, {})
+analytics = Bolt::Analytics::NoopClient.new
+executor = Bolt::Executor.new(
+  config.concurrency,
+  analytics,
+  false,
+  config.modified_concurrency,
+  config.future
+)
+pal = Bolt::PAL.new(
+  Bolt::Config::Modulepath.new(config.modulepath),
+  config.hiera_config,
+  config.project.resource_types,
+  config.compile_concurrency,
+  config.trusted_external,
+  config.apply_settings,
+  config.project
+)
+plugins = Bolt::Plugin.new(config, pal, analytics)
+inventory = Bolt::Inventory.from_config(config, plugins)
+application = Bolt::Application.new(
+  analytics: analytics,
+  config: config,
+  executor: executor,
+  inventory: inventory,
+  pal: pal,
+  plugins: plugins
+)
+
+## At this point we have loaded enough bolt code to experiment with
+## forking plan execution after this point in the lifecycle.
+
+children = options[:plan_count].times.map {
+  plan_subprocess(application, 'bolt_test')
+}
+
+print "C-c to move to next stage; C-\\ to quit\n"
+print "Don't hit C-c until all children have finished the current stage.\n"
+while true
+  begin
+    Process.waitall
+  rescue Interrupt
+    print "#{Process.pid} (parent) interrupted (C-\\ to quit)\n"
+  end
+end
